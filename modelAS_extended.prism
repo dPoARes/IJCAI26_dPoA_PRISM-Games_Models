@@ -1,0 +1,764 @@
+// Authors: Anonymous
+// Last Modified: Tue Jan 20 08:00 a.m. 2026 GMT
+
+// Overview: Model checking strategic properties of PoA (Power of Attorney)
+
+// Model components:
+// - 2 donors D1, D2
+// - 2 attorney A1, A2
+// - 2 objects obj1_D1 and obj2_D2 for D1, similarly for D2
+// - 2 actions act1 and act2 per object
+// - 1 verifier V
+// - 1 legal party L
+// - a delegation covers both actions act1_obj1_Di and act2_obj1_Di on object Oi
+
+// Modelling approach (ASYNCHRONOUS actions):
+// - Each party has a player definition, and one or several modules inside the player definition
+// - Some players has modules outside their player definition, for updating variables
+// according to other players actions
+// - players can acts asynchornously to achieve each phase,
+// - guards in the form of boolean variables ensure the correct scheduling
+// of the phases: e.g., L cannot register a delegation, unless A1 has signed it,
+// and A1 cannot sign a delegation unless, Di has requested it
+
+csg
+
+player D1
+  D1_register,
+  D1_idle,
+  D1_revoke,
+  D1_report_fraud
+endplayer
+
+player D2
+  D2_register,
+  D2_idle,
+  D2_revoke,
+  D2_report_fraud
+endplayer
+
+player A1
+  A1_verify,
+  A1_register,
+  A1_enact
+endplayer
+
+player A2
+  A2_verify,
+  A2_register,
+  A2_enact
+endplayer
+
+player L
+  L_register,
+  L_revoke,
+  L_attest_fraud
+endplayer
+
+player V
+  V_verify,
+  V_enact
+endplayer
+
+const int max_rounds = 1;
+const int max_stutter = 8;
+const bool D1_malicious = false;
+const bool D2_malicious = false;
+const bool A1_malicious = true;
+const bool A2_malicious = true;
+const bool V_malicious = true;
+
+
+
+module D1_register
+  [D1_propose_deleg_to_A1] (!issued_A1_of_D1) & (!revoked_A1_by_D1) & (!deleg_D1_to_A1_requested) & (D1_reg_steps < max_rounds) -> true;
+  [D1_propose_deleg_to_A2] (!issued_A2_of_D1) & (!revoked_A2_by_D1) & (!deleg_D1_to_A2_requested) & (D1_reg_steps < max_rounds) -> true;
+endmodule
+
+module D2_register
+  [D2_propose_deleg_to_A1] (!issued_A1_of_D2) & (!revoked_A1_by_D2) & (!deleg_D2_to_A1_requested) & (D2_reg_steps < max_rounds) -> true;
+  [D2_propose_deleg_to_A2] (!issued_A2_of_D2) & (!revoked_A2_by_D2) & (!deleg_D2_to_A2_requested) & (D2_reg_steps < max_rounds) -> true;
+endmodule
+
+module D1_revoke
+  [revoke_A1_by_D1] (issued_A1_of_D1) & (!revoke_D1_to_A1_requested) & (!revoked_A1_by_D1)-> true;
+  [revoke_A2_by_D1] (issued_A2_of_D1) & (!revoke_D1_to_A2_requested) & (!revoked_A2_by_D1)-> true;
+endmodule
+
+module D2_revoke
+  [revoke_A1_by_D2] (issued_A1_of_D2) & (!revoke_D2_to_A1_requested) & (!revoked_A1_by_D2)-> true;
+  [revoke_A2_by_D2] (issued_A2_of_D2) & (!revoke_D2_to_A2_requested) & (!revoked_A2_by_D2)-> true;
+endmodule
+
+module A1_register
+  [consent_deleg_D1_to_A1] (deleg_D1_to_A1_requested) & (!deleg_D1_to_A1_signed) -> true ;
+  [consent_deleg_D2_to_A1] (deleg_D2_to_A1_requested) & (!deleg_D2_to_A1_signed) -> true ;
+endmodule
+
+module A2_register
+  [consent_deleg_D1_to_A2] (deleg_D1_to_A2_requested) & (!deleg_D1_to_A2_signed) -> true ;
+  [consent_deleg_D2_to_A2] (deleg_D2_to_A2_requested) & (!deleg_D2_to_A2_signed) -> true ;
+endmodule
+
+module L_register
+  issued_A1_of_D1 : bool init false;
+  issued_A1_of_D2 : bool init false;
+  issued_A2_of_D1 : bool init false;
+  issued_A2_of_D2 : bool init false;
+
+  [issue_deleg_D1_to_A1]  deleg_D1_to_A1_signed  & (!revoked_A1_by_D1) & !issued_A1_of_D1 -> (issued_A1_of_D1'=true);
+  [issue_deleg_D2_to_A1]  deleg_D2_to_A1_signed  & (!revoked_A1_by_D2) & !issued_A1_of_D2 -> (issued_A1_of_D2'=true);
+
+  [issue_deleg_D1_to_A2]  deleg_D1_to_A2_signed  & (!revoked_A2_by_D1) & !issued_A2_of_D1 -> (issued_A2_of_D1'=true);
+  [issue_deleg_D2_to_A2]  deleg_D2_to_A2_signed  & (!revoked_A2_by_D2) & !issued_A2_of_D2 -> (issued_A2_of_D2'=true);
+endmodule
+
+module L_revoke
+  revoked_A1_by_D1 : bool init false;
+  revoked_A1_by_D2 : bool init false;
+  revoked_A2_by_D1 : bool init false;
+  revoked_A2_by_D2 : bool init false;
+
+  [publish_revoke_D1_to_A1] revoke_D1_to_A1_requested & issued_A1_of_D1 & !revoked_A1_by_D1 -> (revoked_A1_by_D1'=true);
+  [publish_revoke_D2_to_A1] revoke_D2_to_A1_requested & issued_A1_of_D2 & !revoked_A1_by_D2 -> (revoked_A1_by_D2'=true);
+  [publish_revoke_D1_to_A2] revoke_D1_to_A2_requested & issued_A2_of_D1 & !revoked_A2_by_D1 -> (revoked_A2_by_D1'=true);
+  [publish_revoke_D2_to_A2] revoke_D2_to_A2_requested & issued_A2_of_D2 & !revoked_A2_by_D2 -> (revoked_A2_by_D2'=true);
+endmodule
+
+module L_register_control_D1
+  // L's extra module for registration phase -- but outside player L
+  // the variables that records the delegation requests by Di, signature by A1,
+  // cannot be inside player L's module L_register
+  // because they are both modified by different players Di and A1
+  deleg_D1_to_A1_requested  : bool init false;
+  revoke_D1_to_A1_requested : bool init false;
+  deleg_D1_to_A1_signed     : bool init false;
+
+  [D1_propose_deleg_to_A1] true -> (deleg_D1_to_A1_requested'=true);
+  [revoke_A1_by_D1]        true -> (revoke_D1_to_A1_requested'=true);
+  [consent_deleg_D1_to_A1] true -> (deleg_D1_to_A1_signed'=true) ;
+  [issue_deleg_D1_to_A1]   true -> (deleg_D1_to_A1_requested' = false) & (deleg_D1_to_A1_signed' = false) ;
+endmodule
+
+module L_register_control_D1_A1
+  deleg_D1_to_A2_requested  : bool init false;
+  revoke_D1_to_A2_requested : bool init false;
+  deleg_D1_to_A2_signed     : bool init false;
+  [D1_propose_deleg_to_A2] true -> (deleg_D1_to_A2_requested'=true);
+  [revoke_A2_by_D1]        true -> (revoke_D1_to_A2_requested'=true);
+  [consent_deleg_D1_to_A2] true -> (deleg_D1_to_A2_signed'=true) ;
+  [issue_deleg_D1_to_A2]   true -> (deleg_D1_to_A2_requested' = false) & (deleg_D1_to_A2_signed' = false) ;
+endmodule
+
+module L_register_control_D2_A1
+  deleg_D2_to_A1_requested  : bool init false;
+  revoke_D2_to_A1_requested : bool init false;
+  deleg_D2_to_A1_signed     : bool init false;
+  [D2_propose_deleg_to_A1] true -> (deleg_D2_to_A1_requested'=true);
+  [revoke_A1_by_D2]        true -> (revoke_D2_to_A1_requested'=true);
+  [consent_deleg_D2_to_A1] true -> (deleg_D2_to_A1_signed'=true) ;
+  [issue_deleg_D2_to_A1]   true -> (deleg_D2_to_A1_requested' = false) & (deleg_D2_to_A1_signed' = false) ;
+endmodule
+
+module L_register_control_D2_A2
+  deleg_D2_to_A2_requested  : bool init false;
+  revoke_D2_to_A2_requested : bool init false;
+  deleg_D2_to_A2_signed     : bool init false;
+  [D2_propose_deleg_to_A2] true -> (deleg_D2_to_A2_requested'=true);
+  [revoke_A2_by_D2]        true -> (revoke_D2_to_A2_requested'=true);
+  [consent_deleg_D2_to_A2] true -> (deleg_D2_to_A2_signed'=true) ;
+  [issue_deleg_D2_to_A2]   true -> (deleg_D2_to_A2_requested' = false) & (deleg_D2_to_A2_signed' = false) ;
+endmodule
+
+
+module D1_report_fraud
+  [report_A1_D1] (malicious) & (notified_exec_D1) & (!issued_A1_of_D1)  & (D1_report_steps<max_rounds) & (!fraud_reported_A1_by_D1) -> true;
+  [report_A2_D1] (malicious) & (notified_exec_D1) & (!issued_A2_of_D1)  & (D1_report_steps<max_rounds) & (!fraud_reported_A2_by_D1) -> true;
+endmodule
+
+module D2_report_fraud
+  [report_A1_D2] (malicious) & (notified_exec_D2) & (!issued_A1_of_D2)  & (D2_report_steps<max_rounds) & (!fraud_reported_A1_by_D2) -> true;
+  [report_A2_D2] (malicious) & (notified_exec_D2) & (!issued_A2_of_D2)  & (D2_report_steps<max_rounds) & (!fraud_reported_A2_by_D2) -> true;
+endmodule
+
+module L_attest_fraud
+  fraud_attested_A1_D1 : bool init false;
+  fraud_attested_A1_D2 : bool init false;
+  fraud_attested_A2_D1 : bool init false;
+  fraud_attested_A2_D2 : bool init false;
+  [attest_fraud_A1_D1] (malicious) & (fraud_reported_A1_by_D1) & (!issued_A1_of_D1) & (!fraud_attested_A1_D1) -> (fraud_attested_A1_D1'=true);
+  [attest_fraud_A1_D2] (malicious) & (fraud_reported_A1_by_D2) & (!issued_A1_of_D2) & (!fraud_attested_A1_D2) -> (fraud_attested_A1_D2'=true);
+  [attest_fraud_A2_D1] (malicious) & (fraud_reported_A2_by_D1) & (!issued_A2_of_D1) & (!fraud_attested_A2_D1) -> (fraud_attested_A2_D1'=true);
+  [attest_fraud_A2_D2] (malicious) & (fraud_reported_A2_by_D2) & (!issued_A2_of_D2) & (!fraud_attested_A2_D2) -> (fraud_attested_A2_D2'=true);
+endmodule
+
+module L_report_fraud_control_D1
+  fraud_reported_A1_by_D1 : bool init false;
+  fraud_reported_A2_by_D1 : bool init false;
+  [report_A1_D1] true -> (fraud_reported_A1_by_D1' = true);
+  [report_A2_D1] true -> (fraud_reported_A2_by_D1' = true);
+endmodule
+
+module L_report_fraud_control_D2
+  fraud_reported_A1_by_D2 : bool init false;
+  fraud_reported_A2_by_D2 : bool init false;
+  [report_A1_D2] true -> (fraud_reported_A1_by_D2' = true);
+  [report_A2_D2] true -> (fraud_reported_A2_by_D2' = true);
+endmodule
+
+module A1_verify
+  [ present_deleg_A1_of_D1] (issued_A1_of_D1) & (!verif_A1_att_of_D1_requested) & (A1_ver_steps < max_rounds) -> true;
+  [Xpresent_deleg_A1_of_D1] (A1_malicious)    & (!verif_A1_att_of_D1_requested) & (A1_ver_steps < max_rounds) -> true;
+  [ present_deleg_A1_of_D2] (issued_A1_of_D2) & (!verif_A1_att_of_D2_requested) & (A1_ver_steps < max_rounds) -> true;
+  [Xpresent_deleg_A1_of_D2] (A1_malicious)    & (!verif_A1_att_of_D2_requested) & (A1_ver_steps < max_rounds) -> true;
+endmodule
+
+module A2_verify
+  [ present_deleg_A2_of_D1] (issued_A2_of_D1) & (!verif_A2_att_of_D1_requested) & (A2_ver_steps < max_rounds) -> true;
+  [Xpresent_deleg_A2_of_D1] (A2_malicious)    & (!verif_A2_att_of_D1_requested) & (A2_ver_steps < max_rounds) -> true;
+  [ present_deleg_A2_of_D2] (issued_A2_of_D2) & (!verif_A2_att_of_D2_requested) & (A2_ver_steps < max_rounds) -> true;
+  [Xpresent_deleg_A2_of_D2] (A2_malicious)    & (!verif_A2_att_of_D2_requested) & (A2_ver_steps < max_rounds) -> true;
+endmodule
+
+module V_verify_control_D1_A1
+  verif_A1_att_of_D1_requested : bool init false;
+  [ present_deleg_A1_of_D1] true -> (verif_A1_att_of_D1_requested'=true);
+  [Xpresent_deleg_A1_of_D1] true -> (verif_A1_att_of_D1_requested'=true);
+endmodule
+
+module V_verify_control_D1_A2
+  verif_A2_att_of_D1_requested : bool init false;
+  [ present_deleg_A2_of_D1] true -> (verif_A2_att_of_D1_requested'=true);
+  [Xpresent_deleg_A2_of_D1] true -> (verif_A2_att_of_D1_requested'=true);
+endmodule
+
+module V_verify_control_D2_A1
+  verif_A1_att_of_D2_requested : bool init false;
+  [ present_deleg_A1_of_D2] true -> (verif_A1_att_of_D2_requested'=true);
+  [Xpresent_deleg_A1_of_D2] true -> (verif_A1_att_of_D2_requested'=true);
+endmodule
+
+module V_verify_control_D2_A2
+  verif_A2_att_of_D2_requested : bool init false;
+  [ present_deleg_A2_of_D2] true -> (verif_A2_att_of_D2_requested'=true);
+  [Xpresent_deleg_A2_of_D2] true -> (verif_A2_att_of_D2_requested'=true);
+endmodule
+
+module V_verify
+  act1_obj1_D1_permit_for_D1 : bool init true;
+  act2_obj1_D1_permit_for_D1 : bool init true;
+  act1_obj2_D1_permit_for_D1 : bool init true;
+  act2_obj2_D1_permit_for_D1 : bool init true;
+  act1_obj1_D1_permit_for_A1 : bool init false;
+  act2_obj1_D1_permit_for_A1 : bool init false;
+  act1_obj2_D1_permit_for_A1 : bool init false;
+  act2_obj2_D1_permit_for_A1 : bool init false;
+  verified_A1_of_D1 : bool init false;
+  act1_obj1_D1_permit_for_A2 : bool init false;
+  act2_obj1_D1_permit_for_A2 : bool init false;
+  act1_obj2_D1_permit_for_A2 : bool init false;
+  act2_obj2_D1_permit_for_A2 : bool init false;
+  verified_A2_of_D1 : bool init false;
+
+  act1_obj1_D2_permit_for_D2 : bool init true;
+  act2_obj1_D2_permit_for_D2 : bool init true;
+  act1_obj2_D2_permit_for_D2 : bool init true;
+  act2_obj2_D2_permit_for_D2 : bool init true;
+  act1_obj1_D2_permit_for_A1 : bool init false;
+  act2_obj1_D2_permit_for_A1 : bool init false;
+  act1_obj2_D2_permit_for_A1 : bool init false;
+  act2_obj2_D2_permit_for_A1 : bool init false;
+  verified_A1_of_D2 : bool init false;
+  act1_obj1_D2_permit_for_A2 : bool init false;
+  act2_obj1_D2_permit_for_A2 : bool init false;
+  act1_obj2_D2_permit_for_A2 : bool init false;
+  act2_obj2_D2_permit_for_A2 : bool init false;
+  verified_A2_of_D2 : bool init false;
+
+
+  [ verify_A1_of_D1] (verif_A1_att_of_D1_requested) & (issued_A1_of_D1)    & (!verified_A1_of_D1) & (!revoked_A1_by_D1) -> (act1_obj1_D1_permit_for_A1'=act1_obj1_D1_permit_for_D1) & (act2_obj1_D1_permit_for_A1'=act2_obj1_D1_permit_for_D1) & (act1_obj2_D1_permit_for_A1'=act1_obj2_D1_permit_for_D1) & (act2_obj2_D1_permit_for_A1'=act2_obj2_D1_permit_for_D1) & (verified_A1_of_D1'=true) ;
+  [Xverify_A1_of_D1] (verif_A1_att_of_D1_requested) & (!verified_A1_of_D1) & (V_malicious)                                -> (act1_obj1_D1_permit_for_A1'=act1_obj1_D1_permit_for_D1) & (act2_obj1_D1_permit_for_A1'=act2_obj1_D1_permit_for_D1) & (act1_obj2_D1_permit_for_A1'=act1_obj2_D1_permit_for_D1) & (act2_obj2_D1_permit_for_A1'=act2_obj2_D1_permit_for_D1) & (verified_A1_of_D1'=true) ;
+  [ verify_A1_of_D2] (verif_A1_att_of_D2_requested) & (issued_A1_of_D2)    & (!verified_A1_of_D2) & (!revoked_A1_by_D2) -> (act1_obj1_D2_permit_for_A1'=act1_obj1_D2_permit_for_D2) & (act2_obj1_D2_permit_for_A1'=act2_obj1_D2_permit_for_D2) & (act1_obj2_D2_permit_for_A1'=act1_obj2_D2_permit_for_D2) & (act2_obj2_D2_permit_for_A1'=act2_obj2_D2_permit_for_D2) & (verified_A1_of_D2'=true) ;
+  [Xverify_A1_of_D2] (verif_A1_att_of_D2_requested) & (!verified_A1_of_D2) & (V_malicious)                                -> (act1_obj1_D2_permit_for_A1'=act1_obj1_D2_permit_for_D2) & (act2_obj1_D2_permit_for_A1'=act2_obj1_D2_permit_for_D2) & (act1_obj2_D2_permit_for_A1'=act1_obj2_D2_permit_for_D2) & (act2_obj2_D2_permit_for_A1'=act2_obj2_D2_permit_for_D2) & (verified_A1_of_D2'=true) ;
+
+  [ verify_A2_of_D1] (verif_A2_att_of_D1_requested) & (issued_A2_of_D1)    & (!verified_A2_of_D1) & (!revoked_A2_by_D1) -> (act1_obj1_D1_permit_for_A2'=act1_obj1_D1_permit_for_D1) & (act2_obj1_D1_permit_for_A2'=act2_obj1_D1_permit_for_D1) & (act1_obj2_D1_permit_for_A2'=act1_obj2_D1_permit_for_D1) & (act2_obj2_D1_permit_for_A2'=act2_obj2_D1_permit_for_D1) & (verified_A2_of_D1'=true) ;
+  [Xverify_A2_of_D1] (verif_A2_att_of_D1_requested) & (!verified_A2_of_D1) & (V_malicious)                                -> (act1_obj1_D1_permit_for_A2'=act1_obj1_D1_permit_for_D1) & (act2_obj1_D1_permit_for_A2'=act2_obj1_D1_permit_for_D1) & (act1_obj2_D1_permit_for_A2'=act1_obj2_D1_permit_for_D1) & (act2_obj2_D1_permit_for_A2'=act2_obj2_D1_permit_for_D1) & (verified_A2_of_D1'=true) ;
+  [ verify_A2_of_D2] (verif_A2_att_of_D2_requested) & (issued_A2_of_D2)    & (!verified_A2_of_D2) & (!revoked_A2_by_D2) -> (act1_obj1_D2_permit_for_A2'=act1_obj1_D2_permit_for_D2) & (act2_obj1_D2_permit_for_A2'=act2_obj1_D2_permit_for_D2) & (act1_obj2_D2_permit_for_A2'=act1_obj2_D2_permit_for_D2) & (act2_obj2_D2_permit_for_A2'=act2_obj2_D2_permit_for_D2) & (verified_A2_of_D2'=true) ;
+  [Xverify_A2_of_D2] (verif_A2_att_of_D2_requested) & (!verified_A2_of_D2) & (V_malicious)                                -> (act1_obj1_D2_permit_for_A2'=act1_obj1_D2_permit_for_D2) & (act2_obj1_D2_permit_for_A2'=act2_obj1_D2_permit_for_D2) & (act1_obj2_D2_permit_for_A2'=act1_obj2_D2_permit_for_D2) & (act2_obj2_D2_permit_for_A2'=act2_obj2_D2_permit_for_D2) & (verified_A2_of_D2'=true) ;
+
+endmodule
+
+// We define the following predicates that will be used in the next module
+// V accepts an act request from A1 if
+// - there is a permit for it (issued)
+// - or there is not an action under execution, or
+// - or there has been a revocation (not revoked)
+formula act1_obj1_D1_allow_cond_A1 = (act1_obj1_D1_permit_for_A1) & (!act1_obj1_D1_executed_A1) & (!revoked_A1_by_D1);
+formula act2_obj1_D1_allow_cond_A1 = (act2_obj1_D1_permit_for_A1) & (!act2_obj1_D1_executed_A1) & (!revoked_A1_by_D1);
+formula act1_obj2_D1_allow_cond_A1 = (act1_obj2_D1_permit_for_A1) & (!act1_obj2_D1_executed_A1) & (!revoked_A1_by_D1);
+formula act2_obj2_D1_allow_cond_A1 = (act2_obj2_D1_permit_for_A1) & (!act2_obj2_D1_executed_A1) & (!revoked_A1_by_D1);
+
+formula act1_obj1_D2_allow_cond_A1 = (act1_obj1_D2_permit_for_A1) & (!act1_obj1_D2_executed_A1) & (!revoked_A1_by_D2);
+formula act2_obj1_D2_allow_cond_A1 = (act2_obj1_D2_permit_for_A1) & (!act2_obj1_D2_executed_A1) & (!revoked_A1_by_D2);
+formula act1_obj2_D2_allow_cond_A1 = (act1_obj2_D2_permit_for_A1) & (!act1_obj2_D2_executed_A1) & (!revoked_A1_by_D2);
+formula act2_obj2_D2_allow_cond_A1 = (act2_obj2_D2_permit_for_A1) & (!act2_obj2_D2_executed_A1) & (!revoked_A1_by_D2);
+
+formula act1_obj1_D1_allow_cond_A2 = (act1_obj1_D1_permit_for_A2) & (!act1_obj1_D1_executed_A2) & (!revoked_A2_by_D1);
+formula act2_obj1_D1_allow_cond_A2 = (act2_obj1_D1_permit_for_A2) & (!act2_obj1_D1_executed_A2) & (!revoked_A2_by_D1);
+formula act1_obj2_D1_allow_cond_A2 = (act1_obj2_D1_permit_for_A2) & (!act1_obj2_D1_executed_A2) & (!revoked_A2_by_D1);
+formula act2_obj2_D1_allow_cond_A2 = (act2_obj2_D1_permit_for_A2) & (!act2_obj2_D1_executed_A2) & (!revoked_A2_by_D1);
+
+formula act1_obj1_D2_allow_cond_A2 = (act1_obj1_D2_permit_for_A2) & (!act1_obj1_D2_executed_A2) & (!revoked_A2_by_D2);
+formula act2_obj1_D2_allow_cond_A2 = (act2_obj1_D2_permit_for_A2) & (!act2_obj1_D2_executed_A2) & (!revoked_A2_by_D2);
+formula act1_obj2_D2_allow_cond_A2 = (act1_obj2_D2_permit_for_A2) & (!act1_obj2_D2_executed_A2) & (!revoked_A2_by_D2);
+formula act2_obj2_D2_allow_cond_A2 = (act2_obj2_D2_permit_for_A2) & (!act2_obj2_D2_executed_A2) & (!revoked_A2_by_D2);
+
+
+formula malicious=A1_malicious|A2_malicious|V_malicious;
+
+// Similarly V rejects an act request from A1 if
+// - there is no permit for it
+// - or there is already an action under execution, or
+// - or there has been a revocation
+module V_enact
+  act1_obj1_D1_rejected_A1 : bool init false;
+  act2_obj1_D1_rejected_A1 : bool init false;
+
+  act1_obj1_D1_executed_A1 : bool init false;
+  act2_obj1_D1_executed_A1 : bool init false;
+
+  act1_obj2_D1_rejected_A1 : bool init false;
+  act2_obj2_D1_rejected_A1 : bool init false;
+
+  act1_obj2_D1_executed_A1 : bool init false;
+  act2_obj2_D1_executed_A1 : bool init false;
+
+  act1_obj1_D2_rejected_A1 : bool init false;
+  act2_obj1_D2_rejected_A1 : bool init false;
+
+  act1_obj1_D2_executed_A1 : bool init false;
+  act2_obj1_D2_executed_A1 : bool init false;
+
+  act1_obj2_D2_rejected_A1 : bool init false;
+  act2_obj2_D2_rejected_A1 : bool init false;
+
+  act1_obj2_D2_executed_A1 : bool init false;
+  act2_obj2_D2_executed_A1 : bool init false;
+
+  act1_obj1_D1_rejected_A2 : bool init false;
+  act2_obj1_D1_rejected_A2 : bool init false;
+
+  act1_obj1_D1_executed_A2 : bool init false;
+  act2_obj1_D1_executed_A2 : bool init false;
+
+  act1_obj2_D1_rejected_A2 : bool init false;
+  act2_obj2_D1_rejected_A2 : bool init false;
+
+  act1_obj2_D1_executed_A2 : bool init false;
+  act2_obj2_D1_executed_A2 : bool init false;
+
+  act1_obj1_D2_rejected_A2 : bool init false;
+  act2_obj1_D2_rejected_A2 : bool init false;
+
+  act1_obj1_D2_executed_A2 : bool init false;
+  act2_obj1_D2_executed_A2 : bool init false;
+
+  act1_obj2_D2_rejected_A2 : bool init false;
+  act2_obj2_D2_rejected_A2 : bool init false;
+
+  act1_obj2_D2_executed_A2 : bool init false;
+  act2_obj2_D2_executed_A2 : bool init false;
+
+
+  [ accept_act1_obj1_D1_A1] (act1_obj1_D1_requested_A1) & (act1_obj1_D1_allow_cond_A1)                                                              -> (act1_obj1_D1_executed_A1'=true);
+  [ accept_act2_obj1_D1_A1] (act2_obj1_D1_requested_A1) & (act2_obj1_D1_allow_cond_A1)                                                              -> (act2_obj1_D1_executed_A1'=true);
+  [Xaccept_act1_obj1_D1_A1] (act1_obj1_D1_requested_A1) & (V_malicious)                                                                             -> (act1_obj1_D1_executed_A1'=true);
+  [Xaccept_act2_obj1_D1_A1] (act2_obj1_D1_requested_A1) & (V_malicious)                                                                             -> (act2_obj1_D1_executed_A1'=true);
+  [ reject_act1_obj1_D1_A1] (act1_obj1_D1_requested_A1) & (!act1_obj1_D1_allow_cond_A1) & (!act1_obj1_D1_rejected_A1) & (!act1_obj1_D1_executed_A1) -> (act1_obj1_D1_rejected_A1'=true);
+  [ reject_act2_obj1_D1_A1] (act2_obj1_D1_requested_A1) & (!act2_obj1_D1_allow_cond_A1) & (!act2_obj1_D1_rejected_A1) & (!act2_obj1_D1_executed_A1) -> (act2_obj1_D1_rejected_A1'=true);
+  [ execute_act1_obj1_D1_A1] (act1_obj1_D1_executed_A1) & (!revoked_A1_by_D1)  & (act1_obj1_D1_requested_A1)                                        -> (act1_obj1_D1_executed_A1'=false);
+  [ execute_act2_obj1_D1_A1] (act2_obj1_D1_executed_A1) & (!revoked_A1_by_D1)  & (act2_obj1_D1_requested_A1)                                        -> (act2_obj1_D1_executed_A1'=false);
+  [Xexecute_act1_obj1_D1_A1] (act1_obj1_D1_executed_A1) & (V_malicious)         & (act1_obj1_D1_requested_A1)                                       -> (act1_obj1_D1_executed_A1'=false);
+  [Xexecute_act2_obj1_D1_A1] (act2_obj1_D1_executed_A1) & (V_malicious)         & (act2_obj1_D1_requested_A1)                                       -> (act2_obj1_D1_executed_A1'=false);
+  [ reset_act1_obj1_D1_A1] (act1_obj1_D1_rejected_A1) & (act1_obj1_D1_requested_A1)                                                                 -> (act1_obj1_D1_rejected_A1'=false);
+  [ reset_act2_obj1_D1_A1] (act2_obj1_D1_rejected_A1) & (act2_obj1_D1_requested_A1)                                                                 -> (act2_obj1_D1_rejected_A1'=false);
+
+
+  [ accept_act1_obj2_D1_A1] (act1_obj2_D1_requested_A1) & (act1_obj2_D1_allow_cond_A1)                                                              -> (act1_obj2_D1_executed_A1'=true);
+  [ accept_act2_obj2_D1_A1] (act2_obj2_D1_requested_A1) & (act2_obj2_D1_allow_cond_A1)                                                              -> (act2_obj2_D1_executed_A1'=true);
+  [Xaccept_act1_obj2_D1_A1] (act1_obj2_D1_requested_A1) & (V_malicious)                                                                             -> (act1_obj2_D1_executed_A1'=true);
+  [Xaccept_act2_obj2_D1_A1] (act2_obj2_D1_requested_A1) & (V_malicious)                                                                             -> (act2_obj2_D1_executed_A1'=true);
+  [ reject_act1_obj2_D1_A1] (act1_obj2_D1_requested_A1) & (!act1_obj2_D1_allow_cond_A1) & (!act1_obj2_D1_rejected_A1) & (!act1_obj2_D1_executed_A1) -> (act1_obj2_D1_rejected_A1'=true);
+  [ reject_act2_obj2_D1_A1] (act2_obj2_D1_requested_A1) & (!act2_obj2_D1_allow_cond_A1) & (!act2_obj2_D1_rejected_A1) & (!act2_obj2_D1_executed_A1) -> (act2_obj2_D1_rejected_A1'=true);
+  [ execute_act1_obj2_D1_A1] (act1_obj2_D1_executed_A1) & (!revoked_A1_by_D1)           & (act1_obj2_D1_requested_A1)                               -> (act1_obj2_D1_executed_A1'=false);
+  [ execute_act2_obj2_D1_A1] (act2_obj2_D1_executed_A1) & (!revoked_A1_by_D1)           & (act2_obj2_D1_requested_A1)                               -> (act2_obj2_D1_executed_A1'=false);
+  [Xexecute_act1_obj2_D1_A1] (act1_obj2_D1_executed_A1) & (act1_obj2_D1_requested_A1)   & (V_malicious)                                             -> (act1_obj2_D1_executed_A1'=false);
+  [Xexecute_act2_obj2_D1_A1] (act2_obj2_D1_executed_A1) & (act2_obj2_D1_requested_A1)   & (V_malicious)                                             -> (act2_obj2_D1_executed_A1'=false);
+  [ reset_act1_obj2_D1_A1] (act1_obj2_D1_rejected_A1)   & (act1_obj2_D1_requested_A1)                                                               -> (act1_obj2_D1_rejected_A1'=false);
+  [ reset_act2_obj2_D1_A1] (act2_obj2_D1_rejected_A1)     & act2_obj2_D1_requested_A1                                                                 -> (act2_obj2_D1_rejected_A1'=false);
+
+
+  [ accept_act1_obj1_D2_A1] (act1_obj1_D2_requested_A1) & (act1_obj1_D2_allow_cond_A1)                                        -> (act1_obj1_D2_executed_A1'=true);
+  [ accept_act2_obj1_D2_A1] (act2_obj1_D2_requested_A1) & (act2_obj1_D2_allow_cond_A1)                                        -> (act2_obj1_D2_executed_A1'=true);
+  [Xaccept_act1_obj1_D2_A1] (act1_obj1_D2_requested_A1)                   & (V_malicious)                          -> (act1_obj1_D2_executed_A1'=true);
+  [Xaccept_act2_obj1_D2_A1] (act2_obj1_D2_requested_A1)                   & V_malicious                          -> (act2_obj1_D2_executed_A1'=true);
+  [ reject_act1_obj1_D2_A1] (act1_obj1_D2_requested_A1) & (!act1_obj1_D2_allow_cond_A1) & !act1_obj1_D2_rejected_A1 & !act1_obj1_D2_executed_A1 -> (act1_obj1_D2_rejected_A1'=true);
+  [ reject_act2_obj1_D2_A1] (act2_obj1_D2_requested_A1) & (!act2_obj1_D2_allow_cond_A1) & !act2_obj1_D2_rejected_A1 & !act2_obj1_D2_executed_A1 -> (act2_obj1_D2_rejected_A1'=true);
+  [ execute_act1_obj1_D2_A1] (act1_obj1_D2_executed_A1) & (!revoked_A1_by_D2)  & act1_obj1_D2_requested_A1                    -> (act1_obj1_D2_executed_A1'=false);
+  [ execute_act2_obj1_D2_A1] (act2_obj1_D2_executed_A1) & (!revoked_A1_by_D2)  & act2_obj1_D2_requested_A1                    -> (act2_obj1_D2_executed_A1'=false);
+  [Xexecute_act1_obj1_D2_A1] (act1_obj1_D2_executed_A1)                    & act1_obj1_D2_requested_A1 & V_malicious      -> (act1_obj1_D2_executed_A1'=false);
+  [Xexecute_act2_obj1_D2_A1] (act2_obj1_D2_executed_A1)                    & act2_obj1_D2_requested_A1 & V_malicious      -> (act2_obj1_D2_executed_A1'=false);
+  [ reset_act1_obj1_D2_A1] (act1_obj1_D2_rejected_A1) & (act1_obj1_D2_requested_A1)                                         -> (act1_obj1_D2_rejected_A1'=false);
+  [ reset_act2_obj1_D2_A1] (act2_obj1_D2_rejected_A1) & (act2_obj1_D2_requested_A1)                                         -> (act2_obj1_D2_rejected_A1'=false);
+
+  [ accept_act1_obj2_D2_A1] (act1_obj2_D2_requested_A1) & (act1_obj2_D2_allow_cond_A1)                                        -> (act1_obj2_D2_executed_A1'=true);
+  [ accept_act2_obj2_D2_A1] (act2_obj2_D2_requested_A1) & (act2_obj2_D2_allow_cond_A1)                                        -> (act2_obj2_D2_executed_A1'=true);
+  [Xaccept_act1_obj2_D2_A1] (act1_obj2_D2_requested_A1)                   & (V_malicious)                          -> (act1_obj2_D2_executed_A1'=true);
+  [Xaccept_act2_obj2_D2_A1] (act2_obj2_D2_requested_A1)                   & (V_malicious)                          -> (act2_obj2_D2_executed_A1'=true);
+  [ reject_act1_obj2_D2_A1] (act1_obj2_D2_requested_A1) & (!act1_obj2_D2_allow_cond_A1) & (!act1_obj2_D2_rejected_A1) & (!act1_obj2_D2_executed_A1) -> (act1_obj2_D2_rejected_A1'=true);
+  [ reject_act2_obj2_D2_A1] (act2_obj2_D2_requested_A1) & (!act2_obj2_D2_allow_cond_A1) & (!act2_obj2_D2_rejected_A1) & (!act2_obj2_D2_executed_A1) -> (act2_obj2_D2_rejected_A1'=true);
+  [ execute_act1_obj2_D2_A1] (act1_obj2_D2_executed_A1) & !revoked_A1_by_D2  & (act1_obj2_D2_requested_A1)                    -> (act1_obj2_D2_executed_A1'=false);
+  [ execute_act2_obj2_D2_A1] (act2_obj2_D2_executed_A1) & !revoked_A1_by_D2  & (act2_obj2_D2_requested_A1)                    -> (act2_obj2_D2_executed_A1'=false);
+  [Xexecute_act1_obj2_D2_A1] (act1_obj2_D2_executed_A1)                    & (act1_obj2_D2_requested_A1) & (V_malicious)      -> (act1_obj2_D2_executed_A1'=false);
+  [Xexecute_act2_obj2_D2_A1] (act2_obj2_D2_executed_A1)                    & (act2_obj2_D2_requested_A1) & (V_malicious)      -> (act2_obj2_D2_executed_A1'=false);
+  [ reset_act1_obj2_D2_A1] (act1_obj2_D2_rejected_A1) & (act1_obj2_D2_requested_A1)                                         -> (act1_obj2_D2_rejected_A1'=false);
+  [ reset_act2_obj2_D2_A1] (act2_obj2_D2_rejected_A1) & (act2_obj2_D2_requested_A1)                                         -> (act2_obj2_D2_rejected_A1'=false);
+
+  [ accept_act1_obj1_D1_A2] (act1_obj1_D1_requested_A2) & (act1_obj1_D1_allow_cond_A2)                                                              -> (act1_obj1_D1_executed_A2'=true);
+  [ accept_act2_obj1_D1_A2] (act2_obj1_D1_requested_A2) & (act2_obj1_D1_allow_cond_A2)                                                              -> (act2_obj1_D1_executed_A2'=true);
+  [Xaccept_act1_obj1_D1_A2] (act1_obj1_D1_requested_A2) & (V_malicious)                                                                             -> (act1_obj1_D1_executed_A2'=true);
+  [Xaccept_act2_obj1_D1_A2] (act2_obj1_D1_requested_A2) & (V_malicious)                                                                             -> (act2_obj1_D1_executed_A2'=true);
+  [ reject_act1_obj1_D1_A2] (act1_obj1_D1_requested_A2) & (!act1_obj1_D1_allow_cond_A2) & (!act1_obj1_D1_rejected_A2) & (!act1_obj1_D1_executed_A2) -> (act1_obj1_D1_rejected_A2'=true);
+  [ reject_act2_obj1_D1_A2] (act2_obj1_D1_requested_A2) & (!act2_obj1_D1_allow_cond_A2) & (!act2_obj1_D1_rejected_A2) & (!act2_obj1_D1_executed_A2) -> (act2_obj1_D1_rejected_A2'=true);
+  [ execute_act1_obj1_D1_A2] (act1_obj1_D1_executed_A2) & (!revoked_A2_by_D1)           & (act1_obj1_D1_requested_A2)                               -> (act1_obj1_D1_executed_A2'=false);
+  [ execute_act2_obj1_D1_A2] (act2_obj1_D1_executed_A2) & (!revoked_A2_by_D1)           & (act2_obj1_D1_requested_A2)                               -> (act2_obj1_D1_executed_A2'=false);
+  [Xexecute_act1_obj1_D1_A2] (act1_obj1_D1_executed_A2) & (act1_obj1_D1_requested_A2)   & V_malicious                                               -> (act1_obj1_D1_executed_A2'=false);
+  [Xexecute_act2_obj1_D1_A2] (act2_obj1_D1_executed_A2) & (act2_obj1_D1_requested_A2)   & V_malicious                                               -> (act2_obj1_D1_executed_A2'=false);
+  [ reset_act1_obj1_D1_A2] (act1_obj1_D1_rejected_A2)   & (act1_obj1_D1_requested_A2)                                                               -> (act1_obj1_D1_rejected_A2'=false);
+  [ reset_act2_obj1_D1_A2] (act2_obj1_D1_rejected_A2)   & (act2_obj1_D1_requested_A2)                                                               -> (act2_obj1_D1_rejected_A2'=false);
+
+
+  [ accept_act1_obj2_D1_A2] (act1_obj2_D1_requested_A2) & (act1_obj2_D1_allow_cond_A2)                                                              -> (act1_obj2_D1_executed_A2'=true);
+  [ accept_act2_obj2_D1_A2] (act2_obj2_D1_requested_A2) & (act2_obj2_D1_allow_cond_A2)                                                              -> (act2_obj2_D1_executed_A2'=true);
+  [Xaccept_act1_obj2_D1_A2] (act1_obj2_D1_requested_A2) & (V_malicious)                                                                             -> (act1_obj2_D1_executed_A2'=true);
+  [Xaccept_act2_obj2_D1_A2] (act2_obj2_D1_requested_A2) & (V_malicious)                                                                             -> (act2_obj2_D1_executed_A2'=true);
+  [ reject_act1_obj2_D1_A2] (act1_obj2_D1_requested_A2) & (!act1_obj2_D1_allow_cond_A2) & (!act1_obj2_D1_rejected_A2) & (!act1_obj2_D1_executed_A2) -> (act1_obj2_D1_rejected_A2'=true);
+  [ reject_act2_obj2_D1_A2] (act2_obj2_D1_requested_A2) & (!act2_obj2_D1_allow_cond_A2) & (!act2_obj2_D1_rejected_A2) & (!act2_obj2_D1_executed_A2) -> (act2_obj2_D1_rejected_A2'=true);
+  [ execute_act1_obj2_D1_A2] (act1_obj2_D1_executed_A2) & (!revoked_A2_by_D1)           & (act1_obj2_D1_requested_A2)                               -> (act1_obj2_D1_executed_A2'=false);
+  [ execute_act2_obj2_D1_A2] (act2_obj2_D1_executed_A2) & (!revoked_A2_by_D1)           & (act2_obj2_D1_requested_A2)                               -> (act2_obj2_D1_executed_A2'=false);
+  [Xexecute_act1_obj2_D1_A2] (act1_obj2_D1_executed_A2) & (act1_obj2_D1_requested_A2)   & (V_malicious)                                             -> (act1_obj2_D1_executed_A2'=false);
+  [Xexecute_act2_obj2_D1_A2] (act2_obj2_D1_executed_A2) & (act2_obj2_D1_requested_A2)   & (V_malicious)                                             -> (act2_obj2_D1_executed_A2'=false);
+  [ reset_act1_obj2_D1_A2] (act1_obj2_D1_rejected_A2)   & (act1_obj2_D1_requested_A2)                                                               -> (act1_obj2_D1_rejected_A2'=false);
+  [ reset_act2_obj2_D1_A2] (act2_obj2_D1_rejected_A2)   & (act2_obj2_D1_requested_A2)                                                               -> (act2_obj2_D1_rejected_A2'=false);
+
+
+  [ accept_act1_obj1_D2_A2] (act1_obj1_D2_requested_A2) & (act1_obj1_D2_allow_cond_A2)                                                              -> (act1_obj1_D2_executed_A2'=true);
+  [ accept_act2_obj1_D2_A2] (act2_obj1_D2_requested_A2) & (act2_obj1_D2_allow_cond_A2)                                                              -> (act2_obj1_D2_executed_A2'=true);
+  [Xaccept_act1_obj1_D2_A2] (act1_obj1_D2_requested_A2) & (V_malicious)                                                                             -> (act1_obj1_D2_executed_A2'=true);
+  [Xaccept_act2_obj1_D2_A2] (act2_obj1_D2_requested_A2) & (V_malicious)                                                                             -> (act2_obj1_D2_executed_A2'=true);
+  [ reject_act1_obj1_D2_A2] (act1_obj1_D2_requested_A2) & (!act1_obj1_D2_allow_cond_A2) & (!act1_obj1_D2_rejected_A2) & (!act1_obj1_D2_executed_A2) -> (act1_obj1_D2_rejected_A2'=true);
+  [ reject_act2_obj1_D2_A2] (act2_obj1_D2_requested_A2) & (!act2_obj1_D2_allow_cond_A2) & (!act2_obj1_D2_rejected_A2) & (!act2_obj1_D2_executed_A2) -> (act2_obj1_D2_rejected_A2'=true);
+  [ execute_act1_obj1_D2_A2] (act1_obj1_D2_executed_A2) & (!revoked_A2_by_D2)           & (act1_obj1_D2_requested_A2)                               -> (act1_obj1_D2_executed_A2'=false);
+  [ execute_act2_obj1_D2_A2] (act2_obj1_D2_executed_A2) & (!revoked_A2_by_D2)           & (act2_obj1_D2_requested_A2)                               -> (act2_obj1_D2_executed_A2'=false);
+  [Xexecute_act1_obj1_D2_A2] (act1_obj1_D2_executed_A2) & (act1_obj1_D2_requested_A2)   & (V_malicious)                                             -> (act1_obj1_D2_executed_A2'=false);
+  [Xexecute_act2_obj1_D2_A2] (act2_obj1_D2_executed_A2) & (act2_obj1_D2_requested_A2)   & (V_malicious)                                             -> (act2_obj1_D2_executed_A2'=false);
+  [ reset_act1_obj1_D2_A2] (act1_obj1_D2_rejected_A2)   & (act1_obj1_D2_requested_A2)                                                               -> (act1_obj1_D2_rejected_A2'=false);
+  [ reset_act2_obj1_D2_A2] (act2_obj1_D2_rejected_A2)   & (act2_obj1_D2_requested_A2)                                                               -> (act2_obj1_D2_rejected_A2'=false);
+
+  [ accept_act1_obj2_D2_A2] (act1_obj2_D2_requested_A2) & (act1_obj2_D2_allow_cond_A2)                                                              -> (act1_obj2_D2_executed_A2'=true);
+  [ accept_act2_obj2_D2_A2] (act2_obj2_D2_requested_A2) & (act2_obj2_D2_allow_cond_A2)                                                              -> (act2_obj2_D2_executed_A2'=true);
+  [Xaccept_act1_obj2_D2_A2] (act1_obj2_D2_requested_A2) & (V_malicious)                                                                             -> (act1_obj2_D2_executed_A2'=true);
+  [Xaccept_act2_obj2_D2_A2] (act2_obj2_D2_requested_A2) & (V_malicious)                                                                             -> (act2_obj2_D2_executed_A2'=true);
+  [ reject_act1_obj2_D2_A2] (act1_obj2_D2_requested_A2) & (!act1_obj2_D2_allow_cond_A2) & (!act1_obj2_D2_rejected_A2) & (!act1_obj2_D2_executed_A2) -> (act1_obj2_D2_rejected_A2'=true);
+  [ reject_act2_obj2_D2_A2] (act2_obj2_D2_requested_A2) & (!act2_obj2_D2_allow_cond_A2) & (!act2_obj2_D2_rejected_A2) & (!act2_obj2_D2_executed_A2) -> (act2_obj2_D2_rejected_A2'=true);
+  [ execute_act1_obj2_D2_A2] (act1_obj2_D2_executed_A2) & (!revoked_A2_by_D2)           & (act1_obj2_D2_requested_A2)                               -> (act1_obj2_D2_executed_A2'=false);
+  [ execute_act2_obj2_D2_A2] (act2_obj2_D2_executed_A2) & (!revoked_A2_by_D2)           & (act2_obj2_D2_requested_A2)                               -> (act2_obj2_D2_executed_A2'=false);
+  [Xexecute_act1_obj2_D2_A2] (act1_obj2_D2_executed_A2) & (act1_obj2_D2_requested_A2)   & (V_malicious)                                             -> (act1_obj2_D2_executed_A2'=false);
+  [Xexecute_act2_obj2_D2_A2] (act2_obj2_D2_executed_A2) & (act2_obj2_D2_requested_A2)   & (V_malicious)                                             -> (act2_obj2_D2_executed_A2'=false);
+  [ reset_act1_obj2_D2_A2] (act1_obj2_D2_rejected_A2)   & (act1_obj2_D2_requested_A2)                                                               -> (act1_obj2_D2_rejected_A2'=false);
+  [ reset_act2_obj2_D2_A2] (act2_obj2_D2_rejected_A2)   & (act2_obj2_D2_requested_A2)                                                               -> (act2_obj2_D2_rejected_A2'=false);
+
+
+endmodule
+
+module D1_enact_control
+  notified_exec_D1 : bool init false;
+  [accept_act1_obj1_D1_A1] true -> (notified_exec_D1'=true);
+  [accept_act2_obj1_D1_A1] true -> (notified_exec_D1'=true);
+  [accept_act1_obj2_D1_A1] true -> (notified_exec_D1'=true);
+  [accept_act2_obj2_D1_A1] true -> (notified_exec_D1'=true);
+  [accept_act1_obj1_D1_A2] true -> (notified_exec_D1'=true);
+  [accept_act2_obj1_D1_A2] true -> (notified_exec_D1'=true);
+  [accept_act1_obj2_D1_A2] true -> (notified_exec_D1'=true);
+  [accept_act2_obj2_D1_A2] true -> (notified_exec_D1'=true);
+endmodule
+
+module D2_enact_control
+  notified_exec_D2 : bool init false;
+  [accept_act1_obj1_D2_A1] true -> (notified_exec_D2'=true);
+  [accept_act2_obj1_D2_A1] true -> (notified_exec_D2'=true);
+  [accept_act1_obj2_D2_A1] true -> (notified_exec_D2'=true);
+  [accept_act2_obj2_D2_A1] true -> (notified_exec_D2'=true);
+  [accept_act1_obj1_D2_A2] true -> (notified_exec_D2'=true);
+  [accept_act2_obj1_D2_A2] true -> (notified_exec_D2'=true);
+  [accept_act1_obj2_D2_A2] true -> (notified_exec_D2'=true);
+  [accept_act2_obj2_D2_A2] true -> (notified_exec_D2'=true);
+endmodule
+
+formula act_D1_requested_A1 = act1_obj1_D1_requested_A1 | act2_obj1_D1_requested_A1 |  act1_obj2_D1_requested_A1 | act2_obj2_D1_requested_A1;
+formula act_D2_requested_A1 = act1_obj1_D2_requested_A1 | act2_obj1_D2_requested_A1 |  act1_obj2_D2_requested_A1 | act2_obj2_D2_requested_A1;
+
+formula act_requested_A1 = act_D1_requested_A1 | act_D2_requested_A1;
+
+formula executed_D1_A1 = act1_obj1_D1_executed_A1 | act2_obj1_D1_executed_A1 | act1_obj1_D1_executed_A1 | act2_obj1_D1_executed_A1;
+formula executed_D2_A1 = act1_obj1_D2_executed_A1 | act2_obj1_D2_executed_A1 | act1_obj1_D2_executed_A1 | act2_obj1_D2_executed_A1;
+
+formula act1_obj1_D1_req_cond_A1 = (!act_requested_A1 & act1_obj1_D1_permit_for_A1);
+formula act2_obj1_D1_req_cond_A1 = (!act_requested_A1 & act2_obj1_D1_permit_for_A1);
+
+formula act1_obj1_D2_req_cond_A1 = (!act_requested_A1 & act1_obj1_D2_permit_for_A1);
+formula act2_obj1_D2_req_cond_A1 = (!act_requested_A1 & act2_obj1_D2_permit_for_A1);
+
+formula act1_obj2_D1_req_cond_A1 = (!act_requested_A1 & act1_obj2_D1_permit_for_A1);
+formula act2_obj2_D1_req_cond_A1 = (!act_requested_A1 & act2_obj2_D1_permit_for_A1);
+
+formula act1_obj2_D2_req_cond_A1 = (!act_requested_A1 & act1_obj2_D2_permit_for_A1);
+formula act2_obj2_D2_req_cond_A1 = (!act_requested_A1 & act2_obj2_D2_permit_for_A1);
+
+formula act_D1_requested_A2 = act1_obj1_D1_requested_A2 | act2_obj1_D1_requested_A2 |  act1_obj2_D1_requested_A2 | act2_obj2_D1_requested_A2;
+formula act_D2_requested_A2 = act1_obj1_D2_requested_A2 | act2_obj1_D2_requested_A2 |  act1_obj2_D2_requested_A2 | act2_obj2_D2_requested_A2;
+
+formula act_requested_A2 = act_D1_requested_A2 | act_D2_requested_A2;
+
+formula executed_D1_A2 = act1_obj1_D1_executed_A2 | act2_obj1_D1_executed_A2 | act1_obj1_D1_executed_A2 | act2_obj1_D1_executed_A2;
+formula executed_D2_A2 = act1_obj1_D2_executed_A2 | act2_obj1_D2_executed_A2 | act1_obj1_D2_executed_A2 | act2_obj1_D2_executed_A2;
+
+formula act1_obj1_D1_req_cond_A2 = (!act_requested_A2 & act1_obj1_D1_permit_for_A2);
+formula act2_obj1_D1_req_cond_A2 = (!act_requested_A2 & act2_obj1_D1_permit_for_A2);
+
+formula act1_obj1_D2_req_cond_A2 = (!act_requested_A2 & act1_obj1_D2_permit_for_A2);
+formula act2_obj1_D2_req_cond_A2 = (!act_requested_A2 & act2_obj1_D2_permit_for_A2);
+
+formula act1_obj2_D1_req_cond_A2 = (!act_requested_A2 & act1_obj2_D1_permit_for_A2);
+formula act2_obj2_D1_req_cond_A2 = (!act_requested_A2 & act2_obj2_D1_permit_for_A2);
+
+formula act1_obj2_D2_req_cond_A2 = (!act_requested_A2 & act1_obj2_D2_permit_for_A2);
+formula act2_obj2_D2_req_cond_A2 = (!act_requested_A2 & act2_obj2_D2_permit_for_A2);
+
+
+module A1_enact // A1's module for enacting phase -- inside player A1
+// A1 initiates action requests, but it is V who records these requests in the module below
+// and A1 can only make requests to V, if V hasn't got a pending request from A1
+  [ request_act1_obj1_D1_A1] (act1_obj1_D1_req_cond_A1) & (A1_act_steps<max_rounds) -> true;
+  [ request_act2_obj1_D1_A1] (act2_obj1_D1_req_cond_A1) & (A1_act_steps<max_rounds) -> true;
+  [Xrequest_act1_obj1_D1_A1]    (A1_malicious)          & (A1_act_steps<max_rounds)-> true;
+  [Xrequest_act2_obj1_D1_A1]    (A1_malicious)          & (A1_act_steps<max_rounds) -> true;
+
+  [ request_act1_obj1_D2_A1] (act1_obj1_D2_req_cond_A1) & (A1_act_steps<max_rounds) -> true;
+  [ request_act2_obj1_D2_A1] (act2_obj1_D2_req_cond_A1) & (A1_act_steps<max_rounds) -> true;
+  [Xrequest_act1_obj1_D2_A1]    (A1_malicious)          & (A1_act_steps<max_rounds) -> true;
+  [Xrequest_act2_obj1_D2_A1]    (A1_malicious)          & (A1_act_steps<max_rounds)  -> true;
+
+  [ request_act1_obj2_D1_A1] (act1_obj2_D1_req_cond_A1) & (A1_act_steps<max_rounds) -> true;
+  [ request_act2_obj2_D1_A1] (act2_obj2_D1_req_cond_A1) & (A1_act_steps<max_rounds) -> true;
+  [Xrequest_act1_obj2_D1_A1]   (A1_malicious)           & (A1_act_steps<max_rounds) -> true;
+  [Xrequest_act2_obj2_D1_A1]   (A1_malicious)           & (A1_act_steps<max_rounds) -> true;
+
+  [ request_act1_obj2_D2_A1] (act1_obj2_D2_req_cond_A1) & (A1_act_steps<max_rounds) -> true;
+  [ request_act2_obj2_D2_A1] (act2_obj2_D2_req_cond_A1) & (A1_act_steps<max_rounds) -> true;
+  [Xrequest_act1_obj2_D2_A1]    (A1_malicious)          & (A1_act_steps<max_rounds)-> true;
+  [Xrequest_act2_obj2_D2_A1]    (A1_malicious)          & (A1_act_steps<max_rounds) -> true;
+endmodule
+
+module A2_enact // A2's module for enacting phase -- inside player A2
+// A2 initiates action requests, but it is V who records these requests in the module below
+// and A2 can only make requests to V, if V hasn't got a pending request from A2
+  [ request_act1_obj1_D1_A2] (act1_obj1_D1_req_cond_A2) & (A2_act_steps<max_rounds) -> true;
+  [ request_act2_obj1_D1_A2] (act2_obj1_D1_req_cond_A2) & (A2_act_steps<max_rounds) -> true;
+  [Xrequest_act1_obj1_D1_A2]  (A2_malicious)            & (A2_act_steps<max_rounds) -> true;
+  [Xrequest_act2_obj1_D1_A2]  (A2_malicious)            & (A2_act_steps<max_rounds)  -> true;
+
+  [ request_act1_obj1_D2_A2] (act1_obj1_D2_req_cond_A2) & (A2_act_steps<max_rounds) -> true;
+  [ request_act2_obj1_D2_A2] (act2_obj1_D2_req_cond_A2) & (A2_act_steps<max_rounds) -> true;
+  [Xrequest_act1_obj1_D2_A2]    (A2_malicious)          & (A2_act_steps<max_rounds)  -> true;
+  [Xrequest_act2_obj1_D2_A2]    (A2_malicious)          & (A2_act_steps<max_rounds)  -> true;
+
+  [ request_act1_obj2_D1_A2] (act1_obj2_D1_req_cond_A2) & (A2_act_steps<max_rounds) -> true;
+  [ request_act2_obj2_D1_A2] (act2_obj2_D1_req_cond_A2) & (A2_act_steps<max_rounds) -> true;
+  [Xrequest_act1_obj2_D1_A2]     (A2_malicious)         & (A2_act_steps<max_rounds)-> true;
+  [Xrequest_act2_obj2_D1_A2]     (A2_malicious)         & (A2_act_steps<max_rounds) -> true;
+
+  [ request_act1_obj2_D2_A2] (act1_obj2_D2_req_cond_A2) & (A2_act_steps<max_rounds) -> true;
+  [ request_act2_obj2_D2_A2] (act2_obj2_D2_req_cond_A2) & (A2_act_steps<max_rounds) -> true;
+  [Xrequest_act1_obj2_D2_A2]   (A2_malicious)           & (A2_act_steps<max_rounds) -> true;
+  [Xrequest_act2_obj2_D2_A2]   (A2_malicious)           & (A2_act_steps<max_rounds)  -> true;
+endmodule
+
+module V_enact_control_A1 // V's module for enacting phase -- but outside player V
+// the variables that records the requests by A1 cannot be inside player V's module (V_enact)
+// because they are both modified by A1 (who initiates a request) and by V
+// (who resets the request after an execution or a rejection)
+  act1_obj1_D1_requested_A1 : bool init false;
+  act2_obj1_D1_requested_A1 : bool init false;
+  act1_obj2_D1_requested_A1 : bool init false;
+  act2_obj2_D1_requested_A1 : bool init false;
+  act1_obj1_D2_requested_A1 : bool init false;
+  act2_obj1_D2_requested_A1 : bool init false;
+  act1_obj2_D2_requested_A1 : bool init false;
+  act2_obj2_D2_requested_A1 : bool init false;
+
+  [request_act1_obj1_D1_A1]  true -> (act1_obj1_D1_requested_A1'=true);
+  [request_act2_obj1_D1_A1]  true -> (act2_obj1_D1_requested_A1'=true);
+  [reset_act1_obj1_D1_A1]    true -> (act1_obj1_D1_requested_A1'=false);
+  [reset_act2_obj1_D1_A1]    true -> (act2_obj1_D1_requested_A1'=false);
+  [execute_act1_obj1_D1_A1]  true -> (act1_obj1_D1_requested_A1'=false);
+  [execute_act2_obj1_D1_A1]  true -> (act2_obj1_D1_requested_A1'=false);
+  [Xexecute_act1_obj1_D1_A1] true -> (act1_obj1_D1_requested_A1'=false);
+  [Xexecute_act2_obj1_D1_A1] true -> (act2_obj1_D1_requested_A1'=false);
+
+  [request_act1_obj2_D1_A1]  true -> (act1_obj2_D1_requested_A1'=true);
+  [request_act2_obj2_D1_A1]  true -> (act2_obj2_D1_requested_A1'=true);
+  [reset_act1_obj2_D1_A1]    true -> (act1_obj2_D1_requested_A1'=false);
+  [reset_act2_obj2_D1_A1]    true -> (act2_obj2_D1_requested_A1'=false);
+  [execute_act1_obj2_D1_A1]  true -> (act1_obj2_D1_requested_A1'=false);
+  [execute_act2_obj2_D1_A1]  true -> (act2_obj2_D1_requested_A1'=false);
+  [Xexecute_act1_obj2_D1_A1] true -> (act1_obj2_D1_requested_A1'=false);
+  [Xexecute_act2_obj2_D1_A1] true -> (act2_obj2_D1_requested_A1'=false);
+
+  [request_act1_obj1_D2_A1]  true -> (act1_obj1_D2_requested_A1'=true);
+  [request_act2_obj1_D2_A1]  true -> (act2_obj1_D2_requested_A1'=true);
+  [reset_act1_obj1_D2_A1]    true -> (act1_obj1_D2_requested_A1'=false);
+  [reset_act2_obj1_D2_A1]    true -> (act2_obj1_D2_requested_A1'=false);
+  [execute_act1_obj1_D2_A1]  true -> (act1_obj1_D2_requested_A1'=false);
+  [execute_act2_obj1_D2_A1]  true -> (act2_obj1_D2_requested_A1'=false);
+  [Xexecute_act1_obj1_D2_A1] true -> (act1_obj1_D2_requested_A1'=false);
+  [Xexecute_act2_obj1_D2_A1] true -> (act2_obj1_D2_requested_A1'=false);
+
+  [request_act1_obj2_D2_A1]  true -> (act1_obj2_D2_requested_A1'=true);
+  [request_act2_obj2_D2_A1]  true -> (act2_obj2_D2_requested_A1'=true);
+  [reset_act1_obj2_D2_A1]    true -> (act1_obj2_D2_requested_A1'=false);
+  [reset_act2_obj2_D2_A1]    true -> (act2_obj2_D2_requested_A1'=false);
+  [execute_act1_obj2_D2_A1]  true -> (act1_obj2_D2_requested_A1'=false);
+  [execute_act2_obj2_D2_A1]  true -> (act2_obj2_D2_requested_A1'=false);
+  [Xexecute_act1_obj2_D2_A1] true -> (act1_obj2_D2_requested_A1'=false);
+  [Xexecute_act2_obj2_D2_A1] true -> (act2_obj2_D2_requested_A1'=false);
+endmodule
+
+module V_enact_control_A2
+  act1_obj1_D2_requested_A2 : bool init false;
+  act2_obj1_D2_requested_A2 : bool init false;
+  act1_obj2_D2_requested_A2 : bool init false;
+  act2_obj2_D2_requested_A2 : bool init false;
+
+  act1_obj1_D1_requested_A2 : bool init false;
+  act2_obj1_D1_requested_A2 : bool init false;
+  act1_obj2_D1_requested_A2 : bool init false;
+  act2_obj2_D1_requested_A2 : bool init false;
+
+  [request_act1_obj1_D2_A2]  true -> (act1_obj1_D2_requested_A2'=true);
+  [request_act2_obj1_D2_A2]  true -> (act2_obj1_D2_requested_A2'=true);
+  [reset_act1_obj1_D2_A2]    true -> (act1_obj1_D2_requested_A2'=false);
+  [reset_act2_obj1_D2_A2]    true -> (act2_obj1_D2_requested_A2'=false);
+  [execute_act1_obj1_D2_A2]  true -> (act1_obj1_D2_requested_A2'=false);
+  [execute_act2_obj1_D2_A2]  true -> (act2_obj1_D2_requested_A2'=false);
+  [Xexecute_act1_obj1_D2_A2] true -> (act1_obj1_D2_requested_A2'=false);
+  [Xexecute_act2_obj1_D2_A2] true -> (act2_obj1_D2_requested_A2'=false);
+
+  [request_act1_obj2_D2_A2]  true -> (act1_obj2_D2_requested_A2'=true);
+  [request_act2_obj2_D2_A2]  true -> (act2_obj2_D2_requested_A2'=true);
+  [reset_act1_obj2_D2_A2]    true -> (act1_obj2_D2_requested_A2'=false);
+  [reset_act2_obj2_D2_A2]    true -> (act2_obj2_D2_requested_A2'=false);
+  [execute_act1_obj2_D2_A2]  true -> (act1_obj2_D2_requested_A2'=false);
+  [execute_act2_obj2_D2_A2]  true -> (act2_obj2_D2_requested_A2'=false);
+  [Xexecute_act1_obj2_D2_A2] true -> (act1_obj2_D2_requested_A2'=false);
+  [Xexecute_act2_obj2_D2_A2] true -> (act2_obj2_D2_requested_A2'=false);
+
+  [request_act1_obj1_D1_A2]  true -> (act1_obj1_D1_requested_A2'=true);
+  [request_act2_obj1_D1_A2]  true -> (act2_obj1_D1_requested_A2'=true);
+  [reset_act1_obj1_D1_A2]    true -> (act1_obj1_D1_requested_A2'=false);
+  [reset_act2_obj1_D1_A2]    true -> (act2_obj1_D1_requested_A2'=false);
+  [execute_act1_obj1_D1_A2]  true -> (act1_obj1_D1_requested_A2'=false);
+  [execute_act2_obj1_D1_A2]  true -> (act2_obj1_D1_requested_A2'=false);
+  [Xexecute_act1_obj1_D1_A2] true -> (act1_obj1_D1_requested_A2'=false);
+  [Xexecute_act2_obj1_D1_A2] true -> (act2_obj1_D1_requested_A2'=false);
+
+  [request_act1_obj2_D1_A2]  true -> (act1_obj2_D1_requested_A2'=true);
+  [request_act2_obj2_D1_A2]  true -> (act2_obj2_D1_requested_A2'=true);
+  [reset_act1_obj2_D1_A2]    true -> (act1_obj2_D1_requested_A2'=false);
+  [reset_act2_obj2_D1_A2]    true -> (act2_obj2_D1_requested_A2'=false);
+  [execute_act1_obj2_D1_A2]  true -> (act1_obj2_D1_requested_A2'=false);
+  [execute_act2_obj2_D1_A2]  true -> (act2_obj2_D1_requested_A2'=false);
+  [Xexecute_act1_obj2_D1_A2] true -> (act1_obj2_D1_requested_A2'=false);
+  [Xexecute_act2_obj2_D1_A2] true -> (act2_obj2_D1_requested_A2'=false);
+endmodule
+
+// Modules for stuttering actions
+// --------------------------
+module D1_idle
+  [idle_D1] (D1_idle<max_stutter) -> true;
+endmodule
+
+module D2_idle
+  [idle_D2] (D2_idle<max_stutter) -> true;
+endmodule
+
+// Modules for counting steps
+// --------------------------
+module A1_steps
+  A1_ver_steps : [0..max_rounds] init 0;
+  A1_act_steps : [0..max_rounds] init 0;
+  [ present_deleg_A1_of_D1] true -> (A1_ver_steps'=A1_ver_steps+1);
+  [Xpresent_deleg_A1_of_D1] true -> (A1_ver_steps'=A1_ver_steps+1);
+  [request_act1_obj1_D1_A1] true -> (A1_act_steps'=A1_act_steps+1);
+  [request_act2_obj1_D1_A1] true -> (A1_act_steps'=A1_act_steps+1);
+  [request_act1_obj2_D1_A1] true -> (A1_act_steps'=A1_act_steps+1);
+  [request_act2_obj2_D1_A1] true -> (A1_act_steps'=A1_act_steps+1);
+
+  [ present_deleg_A1_of_D2] true -> (A1_ver_steps'=A1_ver_steps+1);
+  [Xpresent_deleg_A1_of_D2] true -> (A1_ver_steps'=A1_ver_steps+1);
+  [request_act1_obj1_D2_A1] true -> (A1_act_steps'=A1_act_steps+1);
+  [request_act2_obj1_D2_A1] true -> (A1_act_steps'=A1_act_steps+1);
+  [request_act1_obj2_D2_A1] true -> (A1_act_steps'=A1_act_steps+1);
+  [request_act2_obj2_D2_A1] true -> (A1_act_steps'=A1_act_steps+1);
+endmodule
+
+module A2_steps
+  A2_ver_steps : [0..max_rounds] init 0;
+  A2_act_steps : [0..max_rounds] init 0;
+  [ present_deleg_A2_of_D1] true -> (A2_ver_steps'=A2_ver_steps+1);
+  [Xpresent_deleg_A2_of_D1] true -> (A2_ver_steps'=A2_ver_steps+1);
+  [request_act1_obj1_D1_A2] true -> (A2_act_steps'=A2_act_steps+1);
+  [request_act2_obj1_D1_A2] true -> (A2_act_steps'=A2_act_steps+1);
+  [request_act1_obj2_D1_A2] true -> (A2_act_steps'=A2_act_steps+1);
+  [request_act2_obj2_D1_A2] true -> (A2_act_steps'=A2_act_steps+1);
+
+  [ present_deleg_A2_of_D2] true -> (A2_ver_steps'=A2_ver_steps+1);
+  [Xpresent_deleg_A2_of_D2] true -> (A2_ver_steps'=A2_ver_steps+1);
+  [request_act1_obj1_D2_A2] true -> (A2_act_steps'=A2_act_steps+1);
+  [request_act2_obj1_D2_A2] true -> (A2_act_steps'=A2_act_steps+1);
+  [request_act1_obj2_D2_A2] true -> (A2_act_steps'=A2_act_steps+1);
+  [request_act2_obj2_D2_A2] true -> (A2_act_steps'=A2_act_steps+1);
+
+endmodule
+
+module D1_steps
+  D1_reg_steps:    [0..max_rounds] init 0;
+  D1_report_steps: [0..max_rounds] init 0;
+  D1_idle:         [0..max_stutter]         init 0;
+  [D1_propose_deleg_to_A1] true -> (D1_reg_steps'=D1_reg_steps+1);
+  [D1_propose_deleg_to_A2] true -> (D1_reg_steps'=D1_reg_steps+1);
+  [idle_D1]                true -> (D1_idle'=D1_idle+1);
+  [report_A1_D1]           true -> (D1_report_steps'=D1_report_steps+1);
+  [report_A2_D1]           true -> (D1_report_steps'=D1_report_steps+1);
+endmodule
+
+module D2_steps
+  D2_reg_steps:    [0..max_rounds] init 0;
+  D2_report_steps: [0..max_rounds] init 0;
+  D2_idle:         [0..max_stutter]         init 0;
+  [D2_propose_deleg_to_A1] true -> (D2_reg_steps'=D2_reg_steps+1);
+  [D2_propose_deleg_to_A2] true -> (D2_reg_steps'=D2_reg_steps+1);
+  [idle_D2]                true -> (D2_idle'=D2_idle+1);
+  [report_A1_D2]           true -> (D2_report_steps'=D2_report_steps+1);
+  [report_A2_D2]           true -> (D2_report_steps'=D2_report_steps+1);
+endmodule
