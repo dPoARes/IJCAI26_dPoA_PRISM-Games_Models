@@ -1,0 +1,22 @@
+// P1 "overall completeness" ATL*: ⟨D,A,L,V⟩ AF executed_A
+<<D,A1,L,V>>P>=1 [ F act1_executed_A ]   
+
+// P2 "completeness of verification" ATL*: ⟨D,A,L,V⟩AG(issued ⇒ F verified)
+filter(forall, <<D,A1,L,V>>P>=1 [ F verified_A_of_D ], issued_A_of_D & !revoked_A_by_D & model_bound_1)
+
+// P3 "completeness of enacting" ATL*: ⟨D,A,L,V⟩AG(verified ⇒ F executed)
+filter(forall, <<D,A1,L,V>>P>=1 [ F act1_executed_A ], verified_A_of_D & !revoked_A_by_D & model_bound_2)
+
+// P4: Registration completeness (ONLY FOR modelAS.prism) 
+// filter(forall, <<L,V>> P>=1 [ F issued_A_of_D ], (deleg_D_to_A_requested) & (deleg_D_to_A_signed))
+
+// P5 "soundness": in the context of A* and D* ATL*: [[D*,A*]] AG(¬issued ⇒¬executed)
+<<L,V>>P>=1 [ G (!issued_A_of_D=>!act1_executed_A) ]
+
+// P6 "safety under revocation" ATL*: ⟨L,V⟩ AG (revoked ∧¬executed ⇒ G¬executed)
+filter(forall, <<L,V>> P>=1 [ G (!act1_executed_A) ], revoked_A_by_D&(!act1_executed_A))
+
+// P7 "fraud detection in PoA" ⟨D,L⟩ AG (verif mal A for ⇒ F prove_A_incorrect)
+// note that we used verif_mal_A := act1_executed_A & !issued_A_of_D
+filter(forall, <<D,L>> P>=0 [ F fraud_attested], act1_executed_A & !issued_A_of_D)
+

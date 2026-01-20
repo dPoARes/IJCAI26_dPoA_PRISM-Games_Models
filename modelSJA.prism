@@ -1,0 +1,242 @@
+// Authors: Anonymous
+// Last Modified: Tue Jan 20 08:00 a.m. 2026 GMT
+
+// Overview: Model checking strategic properties of PoA (Power of Attorney) 
+
+// Model components: 
+// - 1 donor D
+// - 1 attorney A1
+// - 1 verifier V 
+// - 1 legal party L
+// - 1 unspecified object o of D 
+// - 2 actions act1 and act2 applicable on o
+// - the donor D loses its permissions after delegating 
+// - a delegation covers both actions act1 and act2 on object o
+
+
+// Modelling approach (Synchronised actions):
+// Each of the four rounds of the protocol
+// is modelled as a single synchronised step
+// where each of the four party participate (sometimes by idling) 
+// This synchronised step abstracts a set of actions
+// that needs to occur sequentially. 
+
+csg
+
+player D 
+  D_register,
+  D_idle,
+  D_revoke,
+  D_report_fraud
+endplayer
+
+player A1 
+  A_verify, 
+  A_register,
+  A_enact,
+  A_idle
+endplayer
+
+player V 
+  V_verify,
+  V_enact,
+  V_idle
+endplayer
+
+player L 
+  L_register,
+  L_verify,
+  L_idle,
+  L_revoke,
+  L_attest_fraud
+endplayer
+
+const int max_rounds;
+const int max_stutter=3;
+
+const bool A_malicious;
+const bool V_malicious;
+
+formula D_steps         = max (D_reg_steps, D_report_steps) ;
+formula A_steps         = max (A_reg_steps, A_ver_steps, A_act_steps) ;
+formula L_steps         = max (L_reg1_steps, L_reg2_steps, L_ver_steps);
+formula V_steps         = max (V_ver_steps, V_act1_steps, V_act2_steps);
+
+formula step_bound      = max(D_steps,A_steps,L_steps,V_steps) <= max_rounds;
+formula stutter_bound   = max(D_idle,A_idle,L_idle,V_idle) <= (max_stutter*max_rounds);
+formula model_bound     = stutter_bound & step_bound ;
+
+formula model_bound_1   = stutter_bound_1 & step_bound_1 ;
+formula step_bound_1    = max(D_steps,A_steps,L_steps,V_steps) <= max_rounds-1 ;
+formula stutter_bound_1 = max(D_idle,A_idle,L_idle,V_idle) <= (max_stutter*max_rounds)-1;
+
+formula model_bound_2   = stutter_bound_2 & step_bound_2 ;
+formula step_bound_2    = max(D_steps,A_steps,L_steps,V_steps) <= max_rounds-1 ;
+formula stutter_bound_2 = max(D_idle,A_idle,L_idle,V_idle) <= (max_stutter*max_rounds)-2;
+
+// D_actions: propose_deleg_D_to_A, revoke_A_by_D, idle_D
+// A_actions: consent_deleg_D_to_A, present_deleg_A_of_D, request_act1_A, request_act2_A, idle_A
+// L_actions: issue_deleg_D_to_A, publish_revoke_D_to_A, attest_A_att_of_D, idle_L
+// V_actions: query_A_att_of_D, accept_act1_A, reject_act1_A, execute_act1_A, accept_act2_A, reject_act2_A, execute_act2_A, idle_V
+
+
+module D_register 
+  [propose_deleg_D_to_A] (!issued_A_of_D) & (!revoked_A_by_D) & model_bound -> true;
+endmodule
+
+module D_revoke
+  [revoke_A_by_D] (issued_A_of_D) & (!revoked_A_by_D) & model_bound -> true;
+endmodule
+
+module A_register
+  [consent_deleg_D_to_A] (!issued_A_of_D) & (!revoked_A_by_D) & model_bound -> true ;
+endmodule
+
+module L_register
+  [issue_deleg_D_to_A] (!issued_A_of_D) & model_bound -> true;
+endmodule
+
+module L_revoke
+  [publish_revoke_D_to_A] (issued_A_of_D) & (!revoked_A_by_D) & model_bound -> true;
+endmodule
+
+module register_phase
+  issued_A_of_D : bool init false;
+  [propose_deleg_D_to_A,consent_deleg_D_to_A, issue_deleg_D_to_A] true -> (issued_A_of_D'=true)  ;
+endmodule
+
+module revoke_phase
+  revoked_A_by_D : bool init false;
+  [revoke_A_by_D,publish_revoke_D_to_A] true -> (revoked_A_by_D'=true) ;
+endmodule
+
+module A_verify
+  [present_deleg_A_of_D] (issued_A_of_D)&(!verified_A_of_D)& (!revoked_A_by_D)& model_bound ->  true;
+  [Xpresent_deleg_A_of_D]                (!verified_A_of_D) & A_malicious  & model_bound -> true;
+endmodule
+
+module V_verify
+  [query_A_att_of_D] (issued_A_of_D)&(!verified_A_of_D)& (!revoked_A_by_D) & model_bound -> true;
+endmodule
+
+module L_verify
+  [attest_A_att_of_D] (issued_A_of_D)&(!verified_A_of_D)& (!revoked_A_by_D) & model_bound -> true;
+endmodule
+
+
+module verify_phase
+  verified_A_of_D : bool init false;
+  
+  act1_permit_for_A_by_D : bool init false;
+  act2_permit_for_A_by_D : bool init false;
+
+  [present_deleg_A_of_D, attest_A_att_of_D, query_A_att_of_D] true ->  (act1_permit_for_A_by_D'=true) & (act2_permit_for_A_by_D'=true) & (verified_A_of_D'=true); 
+  [Xpresent_deleg_A_of_D]                                     true -> (act1_permit_for_A_by_D'=true) & (act2_permit_for_A_by_D'=true) & (verified_A_of_D'=true); // V maliciously giving permit to A
+endmodule
+
+module D_report_fraud
+  [report] notified_exec & !issued_A_of_D & !fraud_attested  & model_bound -> true;
+endmodule 
+
+module L_attest_fraud
+  [attest_fraud] notified_exec & !issued_A_of_D & !fraud_attested  & model_bound -> true;
+endmodule
+
+module report_fraud_phase
+  fraud_attested : bool init false;
+  [report,attest_fraud] true -> (fraud_attested' = true);
+endmodule 
+
+
+module V_enact
+  [accept_act1_A ] model_bound & act1_permit_for_A_by_D & !revoked_A_by_D     -> true;
+  [reject_act1_A ] model_bound & (!act1_permit_for_A_by_D) & !rejected_act1_A -> true;
+  [execute_act1_A] model_bound & act1_executed_A                              -> true;
+  [accept_act2_A ] model_bound & act2_permit_for_A_by_D & !revoked_A_by_D     -> true;
+  [reject_act2_A ] model_bound & (!act2_permit_for_A_by_D) & !rejected_act2_A -> true;
+  [execute_act2_A] model_bound & act2_executed_A                              -> true;
+endmodule
+
+module A_enact
+  [request_act1_A] model_bound -> true;
+  [request_act2_A] model_bound -> true;
+endmodule
+
+module enact_phase
+  act1_executed_A : bool init false;
+  act2_executed_A : bool init false;
+  rejected_act1_A : bool init false;
+  rejected_act2_A : bool init false;
+  notified_exec   : bool init false;
+  [request_act1_A, accept_act1_A] true -> (act1_executed_A'=true) & (notified_exec'=true);
+  [request_act2_A, accept_act2_A] true -> (act2_executed_A'=true) & (notified_exec'=true);
+  [execute_act1_A]                true -> (act1_executed_A'=false);
+  [execute_act2_A]                true -> (act2_executed_A'=false);
+  [request_act1_A, reject_act1_A] true -> (rejected_act1_A'=true);
+  [request_act2_A, reject_act2_A] true -> (rejected_act2_A'=true);
+endmodule
+
+module D_idle
+  [idle_D] model_bound -> true; 
+endmodule
+
+module A_idle
+  [idle_A] model_bound -> true; 
+endmodule
+
+module L_idle
+  [idle_L] model_bound -> true; 
+endmodule
+
+module V_idle
+  [idle_V] model_bound -> true; 
+endmodule
+
+module D_steps
+  D_report_steps:  [0..max_rounds] init 0;
+  D_reg_steps : [0..max_rounds]  init 0; 
+  D_idle :      [0..max_stutter] init 0;
+  [propose_deleg_D_to_A]       true -> (D_reg_steps'=D_reg_steps+1);
+  [revoke_A_by_D]              true -> (D_reg_steps'=D_reg_steps+1);
+  [report]                     true -> (D_report_steps'=D_report_steps+1);
+  [idle_D]                     true -> (D_idle'=D_idle+1); 
+endmodule
+
+module A_steps
+  A_reg_steps : [0..max_rounds]  init 0; 
+  A_ver_steps : [0..max_rounds]  init 0;
+  A_act_steps : [0..max_rounds]  init 0; 
+  A_idle      : [0..max_stutter] init 0;
+  [present_deleg_A_of_D]       true -> (A_ver_steps'=A_ver_steps+1);
+  [Xpresent_deleg_A_of_D]      true -> (A_ver_steps'=A_ver_steps+1);
+  [consent_deleg_D_to_A]       true -> (A_reg_steps'=A_reg_steps+1) ;
+  [request_act1_A]             true -> (A_act_steps'=A_act_steps+1);
+  [request_act2_A]             true -> (A_act_steps'=A_act_steps+1);
+  [idle_A]                     true -> (A_idle'     =A_idle+1);
+endmodule
+
+module V_steps
+  V_ver_steps  : [0..max_rounds]  init 0;
+  V_act1_steps : [0..max_rounds]  init 0; 
+  V_act2_steps : [0..max_rounds]  init 0; 
+  V_idle       : [0..max_stutter] init 0;
+  [query_A_att_of_D]           true -> (V_ver_steps' =V_ver_steps+1);
+  [accept_act1_A ]             true -> (V_act1_steps'=V_act1_steps+1);
+  [accept_act2_A ]             true -> (V_act1_steps'=V_act1_steps+1);
+  [reject_act1_A ]             true -> (V_act1_steps'=V_act1_steps+1);
+  [reject_act2_A ]             true -> (V_act1_steps'=V_act1_steps+1);
+  [execute_act1_A]             true -> (V_act2_steps'=V_act2_steps+1);
+  [execute_act2_A]             true -> (V_act2_steps'=V_act2_steps+1);
+  [idle_V]                     true -> (V_idle'      =V_idle+1);
+endmodule
+
+module L_steps
+  L_reg1_steps : [0..max_rounds]  init 0; 
+  L_reg2_steps : [0..max_rounds]  init 0; 
+  L_ver_steps : [0..max_rounds]  init 0;
+  L_idle :      [0..max_stutter] init 0;
+  [issue_deleg_D_to_A]         true -> (L_reg1_steps'=L_reg2_steps+1);
+  [publish_revoke_D_to_A]      true -> (L_reg2_steps'=L_reg2_steps+1);
+  [attest_A_att_of_D]          true -> (L_ver_steps' =L_ver_steps+1);
+  [idle_L]                     true -> (L_idle'      =L_idle+1);
+endmodule
